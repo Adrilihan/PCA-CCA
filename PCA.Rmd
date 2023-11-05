@@ -10,7 +10,6 @@ output: html_document
 renv::restore()
 ```
 
-
 ## Metodology introduction
 
 ## Data treatment
@@ -51,8 +50,6 @@ for (i in 1:length(lines)) {
 print(city_data[1])
 ```
 
-
-
 ```{r Assinging the column names (months) and the row names (years)}
 # Define the month names
 months <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -78,9 +75,7 @@ for (city_index in names(city_data)) {
 print(city_data[1])
 ```
 
-
-
-```{r Converting the large list into a dataframe}
+```{r Converting the data into a dataframe}
 # Initialize an empty data frame to hold the city data
 city_df <- data.frame(matrix(vector("list", length(city_data) * length(months)), 
                              nrow = length(city_data), ncol = length(months),
@@ -107,10 +102,7 @@ for (city_index in names(city_data)) {
 print(city_df)
 ```
 
-
-
-
-```{r Showing a element of the arrayand its first element}
+```{r Showing a element of the dataframe and its first element}
 # Get the temperatures for January for the first city
 jan_temperatures <- city_df[[1, "Jan"]]
 
@@ -120,8 +112,6 @@ print(jan_temperatures)
 # Print the january temperature of 1951
 print(jan_temperatures[[1]][1])
 ```
-
-
 
 ```{r Assigning the indices of the cities to the names of the cities}
 # Read the lines from the file
@@ -154,7 +144,9 @@ smaller_city_df <- city_df[cities,]
 smaller_city_df
 ```
 
-```{r}
+## Data plotting
+
+```{r Plotting the January and June time series for the defined cities}
 # Define the colours for each region
 colors <- c(rep("red", 2), rep("green", 2), rep("blue", 2), rep("purple", 2))
 
@@ -194,11 +186,11 @@ for (i in seq_along(rownames(smaller_city_df))) {
 legend("topright", legend = regions, fill = c("red", "green", "blue", "purple"))
 ```
 
-## Criar a matriz $R_c$
+## Creating the $\mathbf{R}_c$ matrix
 
-Esta matriz é feita fazendo todas as combinações lineares possíveis $(\mathbf{X}_j,\mathbf{X}_j')$, onde $\mathbf{X}_j$ corresponde à matriz de $S$ individuos e a correspondete série temporal de tamanho $t$ correspondente ao índice (mês) $j$. Primeiro iremos aplicar CCA para reduzir a dimensão dos nossos dados de S individuos para 1. Esta aplicação de CCA irá resultar em um par de vetores $(\mathbf{U}_j,\mathbf{U}_j')$ onde a correlação entre este par de vetores irá corresponder ao elemento $(j,j')$ da matriz de correlação $R_c$.
+This matrix is made by making all possible linear combinations $(\mathbf{X}_j,\mathbf{X}_{j'})$, where $\mathbf{X}_j$ corresponds to the matrix of $S$ rows and $t$ columns where $S$ and $t$ corresponds to the number of individuals and the size of the time series corresponding to the variable $j$. First CCA is applied to reduce the dimension of the data from S individuals to 1. This application of CCA will result in a pair of canonical vectors $(\mathbf{U}_j,\mathbf{U}_{j'})$ where the correlation between the first pair of canonical vectors will correspond to the element $(j,j')$ of the correlation matrix $\mathbf{R}_c$.
 
-```{r Construct Rc matrices with all pair of (j,j') }
+```{r Rc matrix building }
 # Initialize an empty matrix to hold the correlation coefficients
 R_c <- matrix(nrow = 12, ncol = 12)
 
@@ -221,8 +213,13 @@ for (j in 1:12) {
 print(R_c)
 ```
 
+With the $\mathbf{R}_c$ matrix constructed we need a way to select the "correct" linear combinations of $(\mathbf{X}_j,\mathbf{X}_j')$, in the referenced paper it was introduced two methods.
 
-```{r Method 1: Select the pairs (j,j') with the highest correlation}
+### Method 1
+
+The method 1 states that the selection of the pairs $(j,j')$ is done iteratively by selecting the highest correlation element of the matrix $\mathbf{R}_c$ and annotating its respective location $(j,j')$, because $\mathbf{R}_c$ is the canonical correlation matrix it's symmetric and has a diagonal of ones, as we want to select the most correlated pairs $(j,j')$ with $j \neq j'$ for the method its only considered the upper or lower triangular sub matrix of $\mathbf{R}_c$.
+
+```{r Selection of the pairs (j,j') by the method 1}
 # Initialize an empty list to hold the selected pairs
 selected_pairs <- list()
 
@@ -247,6 +244,8 @@ while (length(selected_pairs) < ncol(smaller_city_df) / 2) {
 selected_pairs
 ```
 
+Now having the highest correlated $\frac{p}{2}$ pairs we may construct the matrix $\mathbf{U} = (U_j, j \in [1,p])$, where $U_j$ is the canonical variate created by applying CCA on the pair $(j,j')$. The other canonical variate $U_{j'}$ is also assign but to the column $j'$.
+
 ```{r Constructing the U matrix}
 # Initialize an empty matrix to hold the canonical variates
 U <- matrix(nrow = length(years), ncol = length(months))
@@ -267,11 +266,8 @@ for (i in seq_along(selected_pairs)) {
   a <- cca_result$xcoef[,1]
   b <- cca_result$ycoef[,1]
   
-  # Calculate the first canonical variates, possible error because t(a) %*% t(X_j) does not work
-  #U_j = a %*% t(X_j)
-  #U_j_prime = b %*% t(X_j_prime)
-  
-  U_j <- t(X_j) %*% a                 # MAYBE IT'S RIGHT, MAYBE ITS WRONG
+  # Calculate the first canonical variates
+  U_j <- t(X_j) %*% a
   U_j_prime <- t(X_j_prime) %*% b
   
   
@@ -284,6 +280,13 @@ for (i in seq_along(selected_pairs)) {
 U
 ```
 
+### Method 2
+
+Method 2 uses the result of the method 1 but applies the following transformation.
+
+$$ Y_j = \sum_{i = 1, \ i \neq j}^p U_i \ , \quad j=1,2,...,p.$$
+
+This has the expected result of containing more information in just one column $j$. The matrix $\mathbf{Y}$ is done in a similar way as done previously in matrix $\mathbf{U}$.
 
 ```{r Method 2 Constructing the Y matrix}
 # Initialize an empty matrix to hold the new variables
@@ -299,7 +302,21 @@ for (j in seq_len(ncol(U))) {
 Y
 ```
 
-```{r Creating the auto-correlation matriz rho_hat(k)}
+## Creating the cross-autocorrelation matriz $\hat{\rho}(k)$
+
+Now that we have the $\mathbf{U}$ and $\mathbf{Y}$ matrices we may create the cross-autocorrelation matrix $\hat{\rho}(k)$ defined by
+
+$$ \hat{\rho}(k) = \frac{\hat{\gamma}_{jj'}(k)}{\sqrt{\hat{\gamma}_{jj}(0) \hat{\gamma}_{j'j'}(0)}}, \quad k=0,1,..., $$
+
+where
+
+$$ \hat{\gamma}_{jj'}(k) = \frac{1}{N} \sum_{t=1}^{N-k} (U_{t, \ j} - \overline{U}_j) (U_{t + k, \ j'} - \overline{U}_{j'}) , \quad k = 0,1,..., \quad \overline{U}_j = \frac{1}{N} \sum_{t = 1}^{N} U_{t, \ j}, $$
+
+where $U_{t, \ j}$ denotes the element $t$ of the vector $U_j$. Take into account that for method 2 we substitute the $U_j$ with the $Y_j$.
+
+### Method 1
+
+```{r Creating the cross-autocorrelation matriz rho_hat(k) using U's}
 cross_autocovariance <- function(U_j, U_j_prime, k){
   N <- length(U_j)
   
@@ -322,17 +339,53 @@ cross_autocorrelation <- function(U_j, U_j_prime, k) {
 # Defining the lag as 1
 k <- 1
 
-rho_hat <- matrix(data = NA, nrow = ncol(U), ncol = ncol(U))
+rho_hat_1_U <- matrix(data = NA, nrow = ncol(U), ncol = ncol(U))
 
 # Constructing the rho matrix
 for (i in 1:ncol(U)) {
   for (j in 1:ncol(U)) {
-    rho_hat[i,j] <- cross_autocorrelation(U[,i],U[,j],k)
+    rho_hat_1_U[i,j] <- cross_autocorrelation(U[,i],U[,j],k)
   }
 }
-rho_hat
+rho_hat_1_U
 ```
 
+### Method 2
+
+```{r Creating the cross-autocorrelation matriz rho_hat(k) using Y's}
+rho_hat_1_Y <- matrix(data = NA, nrow = ncol(Y), ncol = ncol(Y))
+
+# Constructing the rho matrix
+for (i in 1:ncol(Y)) {
+  for (j in 1:ncol(Y)) {
+    rho_hat_1_Y[i,j] <- cross_autocorrelation(Y[,i],Y[,j],k)
+  }
+}
+rho_hat_1_Y
+```
+
+## Solving the positive definite problem
+
+Yet when computing the cross-autocorrelation functions $\hat{\rho}(k)$ for $k > 0$ the matrix is non positive definite, that is, its eigenvalues might be negative, to solve this problem the zero-eigenvalue approach of Rousseeuw and
+Molenberghs (1993) is going to be used. 
+
+The aproach starts by considering the eigenvalue decomposition (also called spectral decomposition) of a correlation matrix $\mathbf{A}$ thats is given by
+
+$$ \mathbf{A} = \mathbf{P} \Lambda \mathbf{P}^{-1}, $$
+
+where the matrix $\mathbf{P}$ corresponds to the ordered eigenvectors of $\mathbf{A}$. After that we may define the following matrix $\mathbf{\Lambda}'$ that is constructed by setting all negative eigenvalues $\lambda_j$ of the diagonal matrix $\mathbf{\Lambda}$ to zero,
+
+$$ \mathbf{\Lambda}' = \begin{cases} \lambda_j, & \text{if} & \lambda_j \geq 0, \\ 0, & \text{if} & \lambda_j < 0.\end{cases}$$
+
+For the aproximation to be good a diagonal scaling matrix $\mathbf{T}$ with elements $t_{ii}$ must be defined by
+
+$$ t_{ii} = \left[ \sum_{k = 1}^{p} p_{ik}^2 \lambda'_k \right]^{-1}, $$
+
+where $\lambda_k'$ denotes the eigenvalues of $\mathbf{\Lambda}'$.
+
+With this a new matrix $\mathbf{B} = \sqrt{\mathbf{T}}\mathbf{P}\sqrt{\mathbf{\Lambda}'}$ may be calculated and the original correlation matrix $\mathbf{A}$ may be replaced with the estimated matrix $\hat{\mathbf{A}}$, which now is positive definite and whose diagonal elements are one is constructed by
+
+$$ \mathbf{A} = \mathbf{B} \mathbf{B}^T. $$
 
 ```{r Solving the positive definite problem}
 make_positive_definite <- function(A){
@@ -348,22 +401,10 @@ make_positive_definite <- function(A){
   lambda_prime[Re(lambda_prime) < 0] <- 0
   
   # Define the diagonal scaling matrix T
-  # for (i in 1:12) {
-  #   T_matrix[i,i] <- 1/sum(P[i,]^2 * lambda_prime[i,i])
-  # }
-  result <- 0
   T_matrix <- matrix(data = 0, nrow = 12, ncol = 12)
-  
   for (i in 1:12) {
-    for (j in 1:12) {
-      result <- result + (P[i,j] * P[i,j] * lambda_prime[j,j])
-    }
-    T_matrix[i,i] <- 1/result
-    result <- 0
+    T_matrix[i,i] <- 1/sum(P[i,]^2 * diag(lambda_prime))
   }
-  # print(lambda_prime)
-  # print(T_matrix)
-  #T_matrix <- diag(1 / rowSums(P^2 %*% lambda_prime))
   
   # Calculate the new matrix B
   B <- sqrt(T_matrix) %*% P %*% sqrt(lambda_prime)
@@ -374,32 +415,41 @@ make_positive_definite <- function(A){
   return(Re(A_hat))
 }
 
-rho_hat_positive_definite <- make_positive_definite(rho_hat)
-rho_hat_positive_definite
+rho_hat_1_U_positive_definite <- make_positive_definite(rho_hat_1_U)
+rho_hat_1_U_positive_definite
+
+rho_hat_1_Y_positive_definite <- make_positive_definite(rho_hat_1_Y)
+rho_hat_1_Y_positive_definite
 ```
 
-```{r}
-eigen(rho_hat)$values
+```{r Checking the eigenvalues of the resulting matrix}
+eigen(rho_hat_1_U)$values
 
-eigen(rho_hat_positive_definite)$values
+eigen(rho_hat_1_U_positive_definite)$values
+
+eigen(rho_hat_1_Y)$values
+
+eigen(rho_hat_1_Y_positive_definite)$values
 ```
 
-
+## Aplying PCA
 
 ```{r Applying PCA}
-S <- nrow(smaller_city_df)
-N <- length(years)
-p <- length(months)
 
-PC1 <- numeric(length = 0)
-PC2 <- numeric(length = 0)
-
-# Initialize the principal components matrix
-#principal_components <- array(data = NA, dim = c(S*N, 2))
+# Initialize the principal components vectors
+PC1_U <- numeric(length = 0)
+PC2_U <- numeric(length = 0)
+PC1_Y <- numeric(length = 0)
+PC2_Y <- numeric(length = 0)
 
 # Compute the weights that are the eigenvectors of the matrix rho_hat(k)
-eigenvectors <- eigen(rho_hat_positive_definite)$vectors
-eigenvectors <- eigenvectors[ , order(eigen(rho_hat_positive_definite)$values)]
+eigenvalues_U <- eigen(rho_hat_1_U_positive_definite)$values
+eigenvectors_U <- eigen(rho_hat_1_U_positive_definite)$vectors
+eigenvectors_U <- eigenvectors_U[ , order(eigenvalues_U)]
+
+eigenvalues_Y <- eigen(rho_hat_1_Y_positive_definite)$values
+eigenvectors_Y <- eigen(rho_hat_1_Y_positive_definite)$vectors
+eigenvectors_Y <- eigenvectors_Y[ , order(eigenvalues_Y)]
 
 for (s in 1:S) {
   # Get the city's data (a matrix with months as rows and years as columns)
@@ -409,38 +459,37 @@ for (s in 1:S) {
   city_matrix <- t(do.call(rbind, lapply(city_matrix, unlist)))
   
   # Compute the principal components
-  # for (n in 1:N) {
-  #   for (v in 1:p) {
-  #     principal_components[s, n, v] <- sum(eigenvectors[v, ] * city_matrix[, n])
-  #   }
-  # }
+  principal_components_U <- (city_matrix %*% eigenvectors_U)
   
-  principal_components <- (city_matrix %*% eigenvectors)
+  PC1_U <- append(PC1_U,principal_components_U[,1])
+  PC2_U <- append(PC2_U,principal_components_U[,2])
   
-  PC1 <- append(PC1,principal_components[,1])
-  PC2 <- append(PC2,principal_components[,2])
+  principal_components_Y <- (city_matrix %*% eigenvectors_Y)
+  
+  PC1_Y <- append(PC1_Y,principal_components_Y[,1])
+  PC2_Y <- append(PC2_Y,principal_components_Y[,2])
   
 }
-
-print(PC1)
 ```
 
-
+## Plotting the PCA results
 
 ```{r Principal components plot}
 # Define the colours for each region
 PCA_colors <- c(rep("red", N*2), rep("green", N*2), 
                 rep("blue", N*2), rep("purple", N*2))
 
-plot(PC1, PC2, col=PCA_colors)
+plot(scale(PC1_U), scale(PC2_U), col=PCA_colors, 
+     xlab = "PC1", ylab = "PC2", main = "Method 1")
 
 # Add a legend
-legend("topright", legend = regions, fill = c("red", "green", "blue", "purple"))
+legend("topleft", legend = regions, fill = c("red", "green", "blue", "purple"))
 
-plot(scale(PC1), scale(PC2), col=PCA_colors)
+plot(scale(PC1_Y), scale(PC2_Y), col=PCA_colors, 
+     xlab = "PC1", ylab = "PC2", main = "Method 2")
 
 # Add a legend
-legend("topright", legend = regions, fill = c("red", "green", "blue", "purple"))
+legend("topleft", legend = regions, fill = c("red", "green", "blue", "purple"))
 ```
 
 ```{r Principal components time plot}
@@ -454,7 +503,7 @@ cities_per_regions_number <- cities_number/regions_number
 
 # Create a data frame from your vectors
 data <- data.frame(x = rep(years,regions_number*cities_per_regions_number), 
-                   y = scale(PC1), z = scale(PC2))
+                   y = scale(PC1_U), z = scale(PC2_U))
 
 # Create a new variable for colour grouping
 data$color_group <- regions[as.factor(gl(n = regions_number, 
