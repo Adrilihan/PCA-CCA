@@ -282,20 +282,46 @@ U
 
 ### Method 2
 
-Method 2 uses the result of the method 1 but applies the following transformation.
+The method 2 states that there will be no selection of the pairs $(j,j')$, in that place a sum of all possible linear combinations of $(\mathbf{X}_j,\mathbf{X}_j')$ will be taken, this may be translated by the following equations
 
-$$ Y_j = \sum_{i = 1, \ i \neq j}^p U_i \ , \quad j=1,2,...,p.$$
+$$ Y_j = \sum_{i = 1, \ i \neq j}^p U_i \ , \quad j=1,2,...,p,$$
+
+where $U_i$ is the canonical variate created by applying CCA on the pair $(j,j')$.
 
 This has the expected result of containing more information in just one column $j$. The matrix $\mathbf{Y}$ is done in a similar way as done previously in matrix $\mathbf{U}$.
 
-```{r Method 2 Constructing the Y matrix}
+```{r Construction of the Y matrix}
 # Initialize an empty matrix to hold the new variables
 Y <- matrix(nrow = length(years), ncol = length(months))
+U_temp <- matrix(nrow = length(years), ncol = length(months))
 
 # Loop through each variable
 for (j in seq_len(ncol(U))) {
+  # Get the temperatures for month j
+  X_j <- do.call(rbind, lapply(smaller_city_df[, j], unlist))
+  
+  for (i in seq_len(ncol(U))[-j]) {
+    # Get the temperatures for the first pair of months
+    X_j_prime <- do.call(rbind, lapply(smaller_city_df[, i], unlist))
+    
+    # Apply CCA
+    cca_result <- cancor(t(X_j), t(X_j_prime))
+    
+    # Get the coefficients for the first canonical variate
+    a <- cca_result$xcoef[,1]
+    b <- cca_result$ycoef[,1]
+    
+    # Calculate the first canonical variates
+    U_j <- t(X_j) %*% a
+    U_j_prime <- t(X_j_prime) %*% b
+    
+    # Add the canonical variates to the U_temp matrix
+    U_temp[, j] <- U_j
+    U_temp[, i] <- U_j_prime
+  }
+  
   # Calculate the new variable Yj
-  Y[,j] <- rowSums(U[, -j])
+  Y[,j] <- rowSums(U_temp[, -j])
 }
 
 # Now, Y is a matrix of new variables created by Method 2
@@ -369,7 +395,7 @@ rho_hat_1_Y
 Yet when computing the cross-autocorrelation functions $\hat{\rho}(k)$ for $k > 0$ the matrix is non positive definite, that is, its eigenvalues might be negative, to solve this problem the zero-eigenvalue approach of Rousseeuw and
 Molenberghs (1993) is going to be used. 
 
-The aproach starts by considering the eigenvalue decomposition (also called spectral decomposition) of a correlation matrix $\mathbf{A}$ thats is given by
+The approach starts by considering the eigenvalue decomposition (also called spectral decomposition) of a correlation matrix $\mathbf{A}$ that is given by
 
 $$ \mathbf{A} = \mathbf{P} \Lambda \mathbf{P}^{-1}, $$
 
@@ -435,6 +461,7 @@ eigen(rho_hat_1_Y_positive_definite)$values
 ## Aplying PCA
 
 ```{r Applying PCA}
+S <- nrow(smaller_city_df)
 
 # Initialize the principal components vectors
 PC1_U <- numeric(length = 0)
@@ -445,11 +472,11 @@ PC2_Y <- numeric(length = 0)
 # Compute the weights that are the eigenvectors of the matrix rho_hat(k)
 eigenvalues_U <- eigen(rho_hat_1_U_positive_definite)$values
 eigenvectors_U <- eigen(rho_hat_1_U_positive_definite)$vectors
-eigenvectors_U <- eigenvectors_U[ , order(eigenvalues_U)]
+eigenvectors_U <- eigenvectors_U[ , order(eigenvalues_U, decreasing = TRUE)]
 
 eigenvalues_Y <- eigen(rho_hat_1_Y_positive_definite)$values
 eigenvectors_Y <- eigen(rho_hat_1_Y_positive_definite)$vectors
-eigenvectors_Y <- eigenvectors_Y[ , order(eigenvalues_Y)]
+eigenvectors_Y <- eigenvectors_Y[ , order(eigenvalues_Y, decreasing = TRUE)]
 
 for (s in 1:S) {
   # Get the city's data (a matrix with months as rows and years as columns)
@@ -475,6 +502,8 @@ for (s in 1:S) {
 ## Plotting the PCA results
 
 ```{r Principal components plot}
+N <- length(years)
+
 # Define the colours for each region
 PCA_colors <- c(rep("red", N*2), rep("green", N*2), 
                 rep("blue", N*2), rep("purple", N*2))
@@ -492,6 +521,26 @@ plot(scale(PC1_Y), scale(PC2_Y), col=PCA_colors,
 legend("topleft", legend = regions, fill = c("red", "green", "blue", "purple"))
 ```
 
+## Calculating the silhouettes scores
+
+```{r Silhouette score for both methods}
+library(fpc)
+
+# Create cluster assignments (assuming 4 clusters with 100 points each)
+cluster_assignments <- rep(1:4, each = 100)
+
+# Compute the silhouette score
+silhouette_scores <- cluster.stats(d = dist(cbind(scale(PC1_U), scale(PC2_U))), clustering = cluster_assignments)
+sil_score_U =silhouette_scores$avg.silwidth
+sil_score_U
+
+silhouette_scores <- cluster.stats(d = dist(cbind(scale(PC1_Y), scale(PC2_Y))), clustering = cluster_assignments)
+sil_score_Y =silhouette_scores$avg.silwidth
+sil_score_Y
+```
+
+## Plotting the principal components across time
+
 ```{r Principal components time plot}
 # Load the plotly library
 library(plotly)
@@ -502,23 +551,32 @@ cities_number <- length(cities)
 cities_per_regions_number <- cities_number/regions_number
 
 # Create a data frame from your vectors
-data <- data.frame(x = rep(years,regions_number*cities_per_regions_number), 
+data_U <- data.frame(x = rep(years,regions_number*cities_per_regions_number), 
                    y = scale(PC1_U), z = scale(PC2_U))
+data_Y <- data.frame(x = rep(years,regions_number*cities_per_regions_number), 
+                   y = scale(PC1_Y), z = scale(PC2_Y))
 
 # Create a new variable for colour grouping
-data$color_group <- regions[as.factor(gl(n = regions_number, 
+data_U$color_group <- regions[as.factor(gl(n = regions_number, 
+                                 k = cities_per_regions_number*length(years)))]
+data_Y$color_group <- regions[as.factor(gl(n = regions_number, 
                                  k = cities_per_regions_number*length(years)))]
 
 # Create the 3D line plot
-fig <- plot_ly(data, x = ~x, y = ~y, z = ~z, color = ~color_group, 
+fig_U <- plot_ly(data_U, x = ~x, y = ~y, z = ~z, color = ~color_group, 
+               type = "scatter3d", mode = 'lines')
+fig_Y <- plot_ly(data_U, x = ~x, y = ~y, z = ~z, color = ~color_group, 
                type = "scatter3d", mode = 'lines')
 
-# fig <- fig %>% add_markers()
-
-fig <- fig %>% layout(scene = list(xaxis = list(title = 'Years'),
+# Addition of the labels
+fig_U <- fig_U %>% layout(scene = list(xaxis = list(title = 'Years'),
+                                   yaxis = list(title = 'PC1'),
+                                   zaxis = list(title = 'PC2')))
+fig_Y <- fig_Y %>% layout(scene = list(xaxis = list(title = 'Years'),
                                    yaxis = list(title = 'PC1'),
                                    zaxis = list(title = 'PC2')))
 
 # Display the plot
-fig
+fig_U
+fig_Y
 ```
