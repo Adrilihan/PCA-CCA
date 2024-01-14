@@ -1,0 +1,582 @@
+---
+title: "Application of the Canonical correlation for principal components of time series"
+author: "Pedro Caio"
+date: "6 October 2023"
+output: html_document
+---
+
+```{r "Restoring the R enviroment", include=FALSE}
+# Set-up of the R environment
+renv::restore()
+```
+
+## Metodology introduction
+
+## Data treatment
+
+```{r "Formating the data into a large list"}
+# Read the lines from the file
+lines <- readLines("ch160temp.txt")
+
+# Initialize an empty list to hold the city data
+city_data <- list()
+
+# Initialize city_index
+city_index <- NULL
+
+# Loop through the lines
+for (i in 1:length(lines)) {
+  # Split the line into parts
+  parts <- unlist(strsplit(lines[i], "\\s+"))
+  
+  # If the first element is an empty string, it's a data line
+  if (parts[1] == "") {
+    # Remove the first element
+    parts <- parts[-1]
+    
+    # Add the data to the current city
+    temperature_data <- as.numeric(parts[-1])
+    city_data[[city_index]] <- rbind(city_data[[city_index]], temperature_data)
+  } else {
+    # It's a city index line, so start a new city
+    city_index <- parts[1]
+    city_data[[city_index]] <- matrix(ncol = 12, nrow = 0)
+  }
+}
+
+# Now, city_data is a list of matrices, where each matrix represents a city.
+# The rows of the matrix are years and the columns are months.
+
+print(city_data[1])
+```
+
+```{r "Assinging the column names (months) and the row names (years)"}
+# Define the month names
+months <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+# Define the years based on the number of rows in the data frame
+years <- 1951:2000
+  
+# Loop through each city in the city_data list
+for (city_index in names(city_data)) {
+  # Get the city's data frame
+  city_df <- city_data[[city_index]]
+  
+  # Assign the column names
+  colnames(city_df) <- months
+  
+  # Assign the row names
+  rownames(city_df) <- years
+  
+  # Replace the data frame in the list with the updated one
+  city_data[[city_index]] <- city_df
+}
+
+print(city_data[1])
+```
+
+```{r "Converting the data into a dataframe"}
+# Initialize an empty data frame to hold the city data
+city_df <- data.frame(matrix(vector("list", length(city_data) * length(months)), 
+                             nrow = length(city_data), ncol = length(months),
+                             dimnames = list(names(city_data), months)))
+
+# Loop through each city in the city_data list
+for (city_index in names(city_data)) {
+  # Get the city's data frame
+  city_matrix <- city_data[[city_index]]
+  
+  # Loop through each month
+  for (month_index in 1:length(months)) {
+    # Get the temperatures for this month
+    temperatures <- city_matrix[,month_index]
+    
+    # Add the temperatures to the city_df
+    city_df[[city_index, months[month_index]]] <- list(temperatures)
+  }
+}
+
+# Now, city_df is a data frame where each row represents a city and each column represents a month.
+# Each cell contains a vector of temperatures for different years.
+
+city_df
+```
+
+```{r "Showing a element of the dataframe and its first element"}
+# Get the temperatures for January for the first city
+jan_temperatures <- city_df[[1, "Jan"]]
+
+# Print the temperatures
+print(jan_temperatures)
+
+# Print the january temperature of 1951
+print(jan_temperatures[[1]][1])
+```
+
+```{r "Assigning the indices of the cities to the names of the cities"}
+# Read the lines from the file
+city_lines <- readLines("ch160sta.txt")
+
+# Initialize an empty vector to hold the city names
+city_names <- vector("character", length(city_lines))
+
+# Loop through the lines
+for (i in 1:length(city_lines)) {
+  # Split the line into parts
+  parts <- unlist(strsplit(city_lines[i], "\\s+"))
+  
+  # Extract city names
+  city_names[i] <- parts[length(parts)]
+}
+
+# Assign city names to row names of city_df
+rownames(city_df) <- city_names[1:160]
+
+city_df
+```
+
+```{r "Defining a smaller city dataframe"}
+# Defining the cities array
+cities = c("HAILAR","HARBIN","TAIYUAN","BEIJING","CHENGDU","WUHAN","FUZHOU","XIAMEN")
+
+# Extracting the corresponding city rows
+smaller_city_df <- city_df[cities,]
+smaller_city_df
+```
+
+## Data plotting
+
+```{r "Plotting the January and June time series for the defined cities"}
+# Define the colours for each region
+colors <- c(rep("red", 2), rep("green", 2), rep("blue", 2), rep("purple", 2))
+
+# Define the regions
+regions <- c("Northeast", "Northern", "Central", "South coastal")
+
+# Create an empty plot for January
+plot(NA, xlim = range(years), ylim = range(unlist(smaller_city_df[, "Jan"])), 
+     xlab = "Year", ylab = "Temperature", main = "January Temperatures")
+
+# Loop through each city in the smaller_city_df for January
+for (i in seq_along(rownames(smaller_city_df))) {
+  # Get the temperatures for January
+  jan_temperatures <- unlist(smaller_city_df[i, "Jan"])
+  
+  # Add a line to the plot for this city
+  lines(years, jan_temperatures, col = colors[i])
+}
+
+# Add a legend for January
+legend("topright", legend = regions, fill = c("red", "green", "blue", "purple"))
+
+# Create an empty plot for June
+plot(NA, xlim = range(years), ylim = range(unlist(smaller_city_df[, "Jun"])), 
+     xlab = "Year", ylab = "Temperature", main = "June Temperatures")
+
+# Loop through each city in the smaller_city_df for June
+for (i in seq_along(rownames(smaller_city_df))) {
+  # Get the temperatures for June
+  jun_temperatures <- unlist(smaller_city_df[i, "Jun"])
+  
+  # Add a line to the plot for this city
+  lines(years, jun_temperatures, col = colors[i])
+}
+
+# Add a legend for June
+legend("topright", legend = regions, fill = c("red", "green", "blue", "purple"))
+```
+
+## Creating the $\mathbf{R}_c$ matrix
+
+This matrix is made by making all possible linear combinations $(\mathbf{X}_j,\mathbf{X}_{j'})$, where $\mathbf{X}_j$ corresponds to the matrix of $S$ rows and $t$ columns where $S$ and $t$ corresponds to the number of individuals and the size of the time series corresponding to the variable $j$. First CCA is applied to reduce the dimension of the data from S individuals to 1. This application of CCA will result in a pair of canonical vectors $(\mathbf{U}_j,\mathbf{U}_{j'})$ where the correlation between the first pair of canonical vectors will correspond to the element $(j,j')$ of the correlation matrix $\mathbf{R}_c$.
+
+```{r "Rc matrix building"}
+# Initialize an empty matrix to hold the correlation coefficients
+R_c <- matrix(nrow = 12, ncol = 12)
+
+# Loop through each pair of months
+for (j in 1:12) {
+  for (j_prime in 1:12) {
+    # Get the temperatures for months j and j_prime
+    X_j <- do.call(rbind, lapply(smaller_city_df[, j], unlist))
+    X_j_prime <- do.call(rbind, lapply(smaller_city_df[, j_prime], unlist))
+    
+    # Apply CCA, the expected input is observations on rows and variables in columns so transposing is necessary
+    cca_result <- cancor(t(X_j), t(X_j_prime))
+    
+    # Get the first canonical correlation
+    R_c[j, j_prime] <- cca_result$cor[1]
+  }
+}
+
+# Print the correlation matrix
+print(R_c)
+```
+
+With the $\mathbf{R}_c$ matrix constructed we need a way to select the "correct" linear combinations of $(\mathbf{X}_j,\mathbf{X}_j')$, in the referenced paper it was introduced two methods.
+
+### Method 1
+
+The method 1 states that the selection of the pairs $(j,j')$ is done iteratively by selecting the highest correlation element of the matrix $\mathbf{R}_c$ and annotating its respective location $(j,j')$, because $\mathbf{R}_c$ is the canonical correlation matrix it's symmetric and has a diagonal of ones, as we want to select the most correlated pairs $(j,j')$ with $j \neq j'$ for the method its only considered the upper or lower triangular sub matrix of $\mathbf{R}_c$.
+
+```{r "Selection of the pairs (j,j') by the method 1"}
+# Initialize an empty list to hold the selected pairs
+selected_pairs <- list()
+
+# Set the diagonal elements and upper triangle to NA
+  R_c[upper.tri(R_c, diag = TRUE)] <- NA
+
+# Loop until half of the variables have been selected
+while (length(selected_pairs) < ncol(smaller_city_df) / 2) {
+  
+  # Find the pair with the maximum correlation
+  max_cor <- max(R_c, na.rm = TRUE)
+  max_pair <- which(R_c == max_cor, arr.ind = TRUE)
+  
+  # Add the pair to the list of selected pairs
+  selected_pairs[[length(selected_pairs) + 1]] <- max_pair
+  
+  # Remove the selected variables from the correlation matrix
+  R_c[max_pair, ] <- R_c[, max_pair] <- NA
+}
+
+# Now, selected_pairs is a list of pairs of variables selected by Method 1
+selected_pairs
+```
+
+Now having the highest correlated $\frac{p}{2}$ pairs we may construct the matrix $\mathbf{U} = (U_j, j \in [1,p])$, where $U_j$ is the canonical variate created by applying CCA on the pair $(j,j')$. The other canonical variate $U_{j'}$ is also assign but to the column $j'$.
+
+```{r "Constructing the U matrix"}
+# Initialize an empty matrix to hold the canonical variates
+U <- matrix(nrow = length(years), ncol = length(months))
+
+# Loop through each selected pair
+for (i in seq_along(selected_pairs)) {
+  # Get the pair
+  pair <- selected_pairs[[i]]
+  
+  # Get the temperatures for the pair of months
+  X_j <- do.call(rbind, lapply(smaller_city_df[, pair[1]], unlist))
+  X_j_prime <- do.call(rbind, lapply(smaller_city_df[, pair[2]], unlist))
+  
+  # Apply CCA
+  cca_result <- cancor(t(X_j), t(X_j_prime))
+  
+  # Get the coefficients for the first canonical variate
+  a <- cca_result$xcoef[,1]
+  b <- cca_result$ycoef[,1]
+  
+  # Calculate the first canonical variates
+  U_j <- t(X_j) %*% a
+  U_j_prime <- t(X_j_prime) %*% b
+  
+  
+  # Add the canonical variates to the U matrix
+  U[, pair[1]] <- U_j
+  U[, pair[2]] <- U_j_prime
+}
+
+# Now, U is a matrix where each column j is the first canonical variate Uj for the variable j
+U
+```
+
+### Method 2
+
+The method 2 states that there will be no selection of the pairs $(j,j')$, in that place a sum of all possible linear combinations of $(\mathbf{X}_j,\mathbf{X}_j')$ will be taken, this may be translated by the following equations
+
+$$ Y_j = \sum_{i = 1, \ i \neq j}^p U_i \ , \quad j=1,2,...,p,$$
+
+where $U_i$ is the canonical variate created by applying CCA on the pair $(j,j')$.
+
+This has the expected result of containing more information in just one column $j$. The matrix $\mathbf{Y}$ is done in a similar way as done previously in matrix $\mathbf{U}$.
+
+```{r "Construction of the Y matrix"}
+# Initialize an empty matrix to hold the new variables
+Y <- matrix(nrow = length(years), ncol = length(months))
+U_temp <- matrix(nrow = length(years), ncol = length(months))
+
+# Loop through each variable
+for (j in seq_len(ncol(U))) {
+  # Get the temperatures for month j
+  X_j <- do.call(rbind, lapply(smaller_city_df[, j], unlist))
+  
+  for (i in seq_len(ncol(U))[-j]) {
+    # Get the temperatures for the first pair of months
+    X_j_prime <- do.call(rbind, lapply(smaller_city_df[, i], unlist))
+    
+    # Apply CCA
+    cca_result <- cancor(t(X_j), t(X_j_prime))
+    
+    # Get the coefficients for the first canonical variate
+    a <- cca_result$xcoef[,1]
+    b <- cca_result$ycoef[,1]
+    
+    # Calculate the first canonical variates
+    U_j <- t(X_j) %*% a
+    U_j_prime <- t(X_j_prime) %*% b
+    
+    # Add the canonical variates to the U_temp matrix
+    U_temp[, j] <- U_j
+    U_temp[, i] <- U_j_prime
+  }
+  
+  # Calculate the new variable Yj
+  Y[,j] <- rowSums(U_temp[, -j])
+}
+
+# Now, Y is a matrix of new variables created by Method 2
+Y
+```
+
+## Creating the cross-autocorrelation matriz $\hat{\rho}(k)$
+
+Now that we have the $\mathbf{U}$ and $\mathbf{Y}$ matrices we may create the cross-autocorrelation matrix $\hat{\rho}(k)$ defined by
+
+$$ \hat{\rho}(k) = \frac{\hat{\gamma}_{jj'}(k)}{\sqrt{\hat{\gamma}_{jj}(0) \hat{\gamma}_{j'j'}(0)}}, \quad k=0,1,..., $$
+
+where
+
+$$ \hat{\gamma}_{jj'}(k) = \frac{1}{N} \sum_{t=1}^{N-k} (U_{t, \ j} - \overline{U}_j) (U_{t + k, \ j'} - \overline{U}_{j'}) , \quad k = 0,1,..., \quad \overline{U}_j = \frac{1}{N} \sum_{t = 1}^{N} U_{t, \ j}, $$
+
+where $U_{t, \ j}$ denotes the element $t$ of the vector $U_j$. Take into account that for method 2 we substitute the $U_j$ with the $Y_j$.
+
+### Method 1
+
+```{r "Creating the cross-autocorrelation matriz rho_hat(k) using U's"}
+cross_autocovariance <- function(U_j, U_j_prime, k){
+  N <- length(U_j)
+  
+  gamma <- sum((U_j[1:(N-k)] - mean(U_j)) * 
+                 (U_j_prime[(k+1):N] - mean(U_j_prime))) / N
+  
+  return(gamma)
+}
+
+cross_autocorrelation <- function(U_j, U_j_prime, k) {
+  gamma_jj_0 <- cross_autocovariance(U_j, U_j, 0)
+  gamma_j_prime_j_prime_0 <- cross_autocovariance(U_j_prime, U_j_prime, 0)
+  
+  rho <- cross_autocovariance(U_j, U_j_prime, k) / 
+    (gamma_jj_0 * gamma_j_prime_j_prime_0)**(1/2)
+  
+  return(rho)
+}
+
+# Defining the lag as 1
+k <- 1
+
+rho_hat_1_U <- matrix(data = NA, nrow = ncol(U), ncol = ncol(U))
+
+# Constructing the rho matrix
+for (i in 1:ncol(U)) {
+  for (j in 1:ncol(U)) {
+    rho_hat_1_U[i,j] <- cross_autocorrelation(U[,i],U[,j],k)
+  }
+}
+rho_hat_1_U
+```
+
+### Method 2
+
+```{r "Creating the cross-autocorrelation matriz rho_hat(k) using Y's"}
+rho_hat_1_Y <- matrix(data = NA, nrow = ncol(Y), ncol = ncol(Y))
+
+# Constructing the rho matrix
+for (i in 1:ncol(Y)) {
+  for (j in 1:ncol(Y)) {
+    rho_hat_1_Y[i,j] <- cross_autocorrelation(Y[,i],Y[,j],k)
+  }
+}
+rho_hat_1_Y
+```
+
+## Solving the positive definite problem
+
+Yet when computing the cross-autocorrelation functions $\hat{\rho}(k)$ for $k > 0$ the matrix is non positive definite, that is, its eigenvalues might be negative, to solve this problem the zero-eigenvalue approach of Rousseeuw and
+Molenberghs (1993) is going to be used. 
+
+The approach starts by considering the eigenvalue decomposition (also called spectral decomposition) of a correlation matrix $\mathbf{A}$ that is given by
+
+$$ \mathbf{A} = \mathbf{P} \Lambda \mathbf{P}^{-1}, $$
+
+where the matrix $\mathbf{P}$ corresponds to the ordered eigenvectors of $\mathbf{A}$. After that we may define the following matrix $\mathbf{\Lambda}'$ that is constructed by setting all negative eigenvalues $\lambda_j$ of the diagonal matrix $\mathbf{\Lambda}$ to zero,
+
+$$ \mathbf{\Lambda}' = \begin{cases} \lambda_j, & \text{if} & \lambda_j \geq 0, \\ 0, & \text{if} & \lambda_j < 0.\end{cases}$$
+
+For the aproximation to be good a diagonal scaling matrix $\mathbf{T}$ with elements $t_{ii}$ must be defined by
+
+$$ t_{ii} = \left[ \sum_{k = 1}^{p} p_{ik}^2 \lambda'_k \right]^{-1}, $$
+
+where $\lambda_k'$ denotes the eigenvalues of $\mathbf{\Lambda}'$.
+
+With this a new matrix $\mathbf{B} = \sqrt{\mathbf{T}}\mathbf{P}\sqrt{\mathbf{\Lambda}'}$ may be calculated and the original correlation matrix $\mathbf{A}$ may be replaced with the estimated matrix $\hat{\mathbf{A}}$, which now is positive definite and whose diagonal elements are one is constructed by
+
+$$ \mathbf{A} = \mathbf{B} \mathbf{B}^T. $$
+
+```{r "Solving the positive definite problem"}
+make_positive_definite <- function(A){
+  # Perform eigenvalue decomposition
+  eig_decomp <- eigen(A)
+  
+  # Get the eigenvalues and eigenvectors
+  lambda <- Re(diag(eig_decomp$values))
+  P <- Re(eig_decomp$vectors)
+
+  # Replace negative eigenvalues with zero
+  lambda_prime <- lambda 
+  lambda_prime[Re(lambda_prime) < 0] <- 0
+  
+  # Define the diagonal scaling matrix T
+  T_matrix <- matrix(data = 0, nrow = 12, ncol = 12)
+  for (i in 1:12) {
+    T_matrix[i,i] <- 1/sum(P[i,]^2 * diag(lambda_prime))
+  }
+  
+  # Calculate the new matrix B
+  B <- sqrt(T_matrix) %*% P %*% sqrt(lambda_prime)
+  
+  # Replace the original correlation matrix A with the estimated matrix A_hat
+  A_hat <- B %*% t(B)
+  
+  return(Re(A_hat))
+}
+
+rho_hat_1_U_positive_definite <- make_positive_definite(rho_hat_1_U)
+rho_hat_1_U_positive_definite
+
+rho_hat_1_Y_positive_definite <- make_positive_definite(rho_hat_1_Y)
+rho_hat_1_Y_positive_definite
+```
+
+```{r "Checking the eigenvalues of the resulting matrix"}
+eigen(rho_hat_1_U)$values
+
+eigen(rho_hat_1_U_positive_definite)$values
+
+eigen(rho_hat_1_Y)$values
+
+eigen(rho_hat_1_Y_positive_definite)$values
+```
+
+## Aplying PCA
+
+```{r "Applying PCA"}
+S <- nrow(smaller_city_df)
+
+# Initialize the principal components vectors
+PC1_U <- numeric(length = 0)
+PC2_U <- numeric(length = 0)
+PC1_Y <- numeric(length = 0)
+PC2_Y <- numeric(length = 0)
+
+# Compute the weights that are the eigenvectors of the matrix rho_hat(k)
+eigenvalues_U <- eigen(rho_hat_1_U_positive_definite)$values
+eigenvectors_U <- eigen(rho_hat_1_U_positive_definite)$vectors
+eigenvectors_U <- eigenvectors_U[ , order(eigenvalues_U, decreasing = TRUE)]
+
+eigenvalues_Y <- eigen(rho_hat_1_Y_positive_definite)$values
+eigenvectors_Y <- eigen(rho_hat_1_Y_positive_definite)$vectors
+eigenvectors_Y <- eigenvectors_Y[ , order(eigenvalues_Y, decreasing = TRUE)]
+
+for (s in 1:S) {
+  # Get the city's data (a matrix with months as rows and years as columns)
+  city_matrix <- smaller_city_df[s, ]
+  
+  # Convert the list of vectors into a matrix where columns is the years and the rows are the months
+  city_matrix <- t(do.call(rbind, lapply(city_matrix, unlist)))
+  
+  # Compute the principal components
+  principal_components_U <- (city_matrix %*% eigenvectors_U)
+  
+  PC1_U <- append(PC1_U,principal_components_U[,1])
+  PC2_U <- append(PC2_U,principal_components_U[,2])
+  
+  principal_components_Y <- (city_matrix %*% eigenvectors_Y)
+  
+  PC1_Y <- append(PC1_Y,principal_components_Y[,1])
+  PC2_Y <- append(PC2_Y,principal_components_Y[,2])
+  
+}
+```
+
+## Plotting the PCA results
+
+```{r "Principal components plot"}
+N <- length(years)
+
+# Define the colours for each region
+PCA_colors <- c(rep("red", N*2), rep("green", N*2), 
+                rep("blue", N*2), rep("purple", N*2))
+
+plot(scale(PC1_U), scale(PC2_U), col=PCA_colors, 
+     xlab = "PC1", ylab = "PC2", main = "Method 1")
+
+# Add a legend
+legend("topleft", legend = regions, fill = c("red", "green", "blue", "purple"))
+
+plot(scale(PC1_Y), scale(PC2_Y), col=PCA_colors, 
+     xlab = "PC1", ylab = "PC2", main = "Method 2")
+
+# Add a legend
+legend("topleft", legend = regions, fill = c("red", "green", "blue", "purple"))
+```
+
+## Calculating the silhouettes scores
+
+```{r "Silhouette score for both methods"}
+library(fpc)
+
+# Create cluster assignments (assuming 4 clusters with 100 points each)
+cluster_assignments <- rep(1:4, each = 100)
+
+# Compute the silhouette score
+silhouette_scores <- cluster.stats(d = dist(cbind(scale(PC1_U), scale(PC2_U))), clustering = cluster_assignments)
+sil_score_U =silhouette_scores$avg.silwidth
+sil_score_U
+
+silhouette_scores <- cluster.stats(d = dist(cbind(scale(PC1_Y), scale(PC2_Y))), clustering = cluster_assignments)
+sil_score_Y =silhouette_scores$avg.silwidth
+sil_score_Y
+```
+
+## Plotting the principal components across time
+
+```{r "Principal components 3D time plot"}
+# Load the plotly library
+library(plotly)
+
+# Defining the number of regions and cities
+regions_number <- length(regions)
+cities_number <- length(cities)
+cities_per_regions_number <- cities_number/regions_number
+
+# Create a data frame from your vectors
+data_U <- data.frame(x = rep(years,regions_number*cities_per_regions_number), 
+                   y = scale(PC1_U), z = scale(PC2_U))
+data_Y <- data.frame(x = rep(years,regions_number*cities_per_regions_number), 
+                   y = scale(PC1_Y), z = scale(PC2_Y))
+
+# Create a new variable for colour grouping
+data_U$color_group <- regions[as.factor(gl(n = regions_number, 
+                                 k = cities_per_regions_number*length(years)))]
+data_Y$color_group <- regions[as.factor(gl(n = regions_number, 
+                                 k = cities_per_regions_number*length(years)))]
+
+# Create the 3D line plot
+fig_U <- plot_ly(data_U, x = ~x, y = ~y, z = ~z, color = ~color_group, 
+               type = "scatter3d", mode = 'lines')
+fig_Y <- plot_ly(data_Y, x = ~x, y = ~y, z = ~z, color = ~color_group, 
+               type = "scatter3d", mode = 'lines')
+
+# Addition of the labels
+fig_U <- fig_U %>% layout(scene = list(xaxis = list(title = 'Years'),
+                                   yaxis = list(title = 'PC1'),
+                                   zaxis = list(title = 'PC2')))
+fig_Y <- fig_Y %>% layout(scene = list(xaxis = list(title = 'Years'),
+                                   yaxis = list(title = 'PC1'),
+                                   zaxis = list(title = 'PC2')))
+
+# Display the plot
+fig_U
+fig_Y
+```
